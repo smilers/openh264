@@ -31,64 +31,42 @@ private:\n\
 
 
 def gen_args_type(args, member):
-    if member:
-        ret = ["C o"]
-    else:
-        ret = []
+    ret = ["C o"] if member else []
     ret.append("M m")
-    for arg in range(0, args):
-        ret.append("A%d a%d"%(arg, arg))
+    ret.extend("A%d a%d"%(arg, arg) for arg in range(args))
     return ", ".join(ret)
 
 def gen_args(args, member):
-    if member:
-        ret = ["o"]
-    else:
-        ret = []
+    ret = ["o"] if member else []
     ret.append("m")
-    for arg in range(0, args):
-        ret.append("a%d"%(arg))
+    ret.extend("a%d"%(arg) for arg in range(args))
     return ", ".join(ret)
 
 def gen_args_(args):
-    ret = []
-    for arg in range(0, args):
-        ret.append("a%d_"%(arg))
+    ret = ["a%d_"%(arg) for arg in range(args)]
     return ", ".join(ret)
 
 def gen_init(args, r = False, member = False):
-    if member:
-        ret = ["o_ (o)"]
-    else:
-        ret = []
+    ret = ["o_ (o)"] if member else []
     ret.append("m_ (m)")
 
     if r:
         ret.append("r_ (r)")
 
-    for arg in range(0, args):
-        ret.append("a%d_ (a%d)"%(arg, arg))
+    ret.extend("a%d_ (a%d)"%(arg, arg) for arg in range(args))
     return ", ".join(ret)
 
 def gen_typenames(args, member):
-    if member:
-        ret = ["typename C"]
-    else:
-        ret = []
+    ret = ["typename C"] if member else []
     ret.append("typename M")
 
-    for arg in range(0, args):
-        ret.append("typename A%d"%(arg))
+    ret.extend("typename A%d"%(arg) for arg in range(args))
     return ", ".join(ret)
 
 def gen_types(args, member):
-    if member:
-        ret = ["C"]
-    else:
-        ret = []
+    ret = ["C"] if member else []
     ret.append("M")
-    for arg in range(0, args):
-        ret.append("A%d"%(arg))
+    ret.extend("A%d"%(arg) for arg in range(args))
     return ", ".join(ret)
 
 
@@ -181,12 +159,12 @@ def generate_function_template_ret(args, member):
 
 print boilerplate
 print
-print includes
+print boilerplate
 print
-print refcountclass
+print boilerplate
 print
 
-for num_args in range (0, MAX_ARGS):
+for num_args in range(MAX_ARGS):
     generate_class_template(num_args, False, False)
     generate_class_template(num_args, True, False)
     generate_class_template(num_args, False, True)
@@ -197,7 +175,7 @@ print
 print
 print
 
-for num_args in range(0, MAX_ARGS):
+for num_args in range(MAX_ARGS):
     generate_function_template(num_args, False)
     generate_function_template_ret(num_args, False)
     generate_function_template(num_args, True)

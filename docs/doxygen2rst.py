@@ -16,21 +16,19 @@ def is_valid_uuid(uuid_string):
 
 def get_page(refid):
     fields = refid.split("_")
-    if(is_valid_uuid(fields[-1][-32:])):
-        return ["_".join(fields[0:-1]), fields[-1]]
+    if (is_valid_uuid(fields[-1][-32:])):
+        return ["_".join(fields[:-1]), fields[-1]]
     return [refid, None]
 
 def mkdir_p(path):
     try:
         os.makedirs(path)
     except OSError as exc: # Python >2.5
-        if exc.errno == errno.EEXIST and os.path.isdir(path):
-            pass
-        else:
+        if exc.errno != errno.EEXIST or not os.path.isdir(path):
             raise
 
 def _glob(path, *exts):
-    path = os.path.join(path, "*") if os.path.isdir(path) else path + "*"
+    path = os.path.join(path, "*") if os.path.isdir(path) else f"{path}*"
     return [f for files in [glob.glob(path + ext) for ext in exts] for f in files]
 
 class DoxyGen2RST(object):
@@ -69,19 +67,20 @@ class DoxyGen2RST(object):
         self.build_references()
         self.page_references = {}
         self.missing_filename = missing_filename
-        self.temp_uml_path = os.path.join(tempfile.gettempdir(), "uml_" + binascii.b2a_hex(os.urandom(15)))
+        self.temp_uml_path = os.path.join(
+            tempfile.gettempdir(), f"uml_{binascii.b2a_hex(os.urandom(15))}"
+        )
         if os.path.exists(self.temp_uml_path):
             shutil.rmtree(self.temp_uml_path)
         os.mkdir(self.temp_uml_path)
 
     def _find_ref_id(self, kind, name):
         #print("_find_ref_id, %s - %s" %(kind, name))
-        if(kind == "function"):
+        if (kind == "function"):
             for comp in self.index_root.iter("member"):
                 if(comp.attrib["kind"].lower() == kind.lower() and
                    comp.findtext("name").lower() == name.lower()):
                     return (comp.attrib["refid"])
-            pass
         else:
             for comp in self.index_root.iter("compound"):
                 if(comp.attrib["kind"].lower() == kind.lower() and
@@ -99,19 +98,18 @@ class DoxyGen2RST(object):
     def build_references(self):
         for file in _glob(self.rst_dir, *self.filter):
             filename = os.path.basename(file)
-            fin = open(file,'r')
-            content = fin.read()
-            it = re.finditer(self.re_doxy, content, re.DOTALL)
-            for m in it:
-                ref_id = self._find_ref_id(m.groups()[0], m.groups()[1])
-                if(ref_id is None):
-                    #print("Reference is NOT found for: %s=%s" % (m.groups()[0], m.groups()[1]))
-                    continue
-                page_name = os.path.splitext(filename)[0]
-                title_ref = self.strip_title_ref(m.groups()[2])
-                self.references[ref_id] = [m.groups()[0], m.groups()[1], page_name, filename, title_ref]
-                self.name_refid_map[m.groups()[1]] = ref_id
-            fin.close()
+            with open(file,'r') as fin:
+                content = fin.read()
+                it = re.finditer(self.re_doxy, content, re.DOTALL)
+                for m in it:
+                    ref_id = self._find_ref_id(m.groups()[0], m.groups()[1])
+                    if(ref_id is None):
+                        #print("Reference is NOT found for: %s=%s" % (m.groups()[0], m.groups()[1]))
+                        continue
+                    page_name = os.path.splitext(filename)[0]
+                    title_ref = self.strip_title_ref(m.groups()[2])
+                    self.references[ref_id] = [m.groups()[0], m.groups()[1], page_name, filename, title_ref]
+                    self.name_refid_map[m.groups()[1]] = ref_id
         #print(self.references)
 
     def call_plantuml(self):
@@ -120,27 +118,33 @@ class DoxyGen2RST(object):
 
         java_bin = os.path.join(os.environ['JAVA_HOME'], "bin", "java")
         output_path = os.path.abspath(os.path.join(self.output_dir, "images"))
-        cmds = ["\"" + java_bin + "\"", "-jar", "plantuml.jar", self.temp_uml_path + "/", "-o", output_path]
+        cmds = [
+            "\"" + java_bin + "\"",
+            "-jar",
+            "plantuml.jar",
+            f"{self.temp_uml_path}/",
+            "-o",
+            output_path,
+        ]
         print(" ".join(cmds))
         os.system(" ".join(cmds))
         shutil.rmtree(self.temp_uml_path)
 
     def _build_uml(self, uml_name, content):
-        uml_path = os.path.join(self.temp_uml_path, uml_name + ".txt")
-        fuml = open(uml_path, "w+")
-        fuml.write("@startuml\n")
-        fuml.write(content)
-        fuml.write("\n@enduml\n")
-        fuml.close()
-        return ".. image:: images/" + uml_name + ".png" + LINE_BREAKER
+        uml_path = os.path.join(self.temp_uml_path, f"{uml_name}.txt")
+        with open(uml_path, "w+") as fuml:
+            fuml.write("@startuml\n")
+            fuml.write(content)
+            fuml.write("\n@enduml\n")
+        return f".. image:: images/{uml_name}.png{LINE_BREAKER}"
 
     def _build(self, m):
         retstr = ""
-        if(m.groups()[0] == "uml"):
+        if (m.groups()[0] == "uml"):
             retstr = self._build_uml(m.groups()[1], m.groups()[2])
-        elif(m.groups()[0] == "link"):
+        elif (m.groups()[0] == "link"):
             link = m.groups()[1] + self.page_ext
-            retstr = ("`%s <%s>`_" % (m.groups()[2], link))
+            retstr = f"`{m.groups()[2]} <{link}>`_"
         else:
             if(m.groups()[0] != "function"):
                 retstr +=  self._build_title(m.groups()[2])
@@ -151,17 +155,14 @@ class DoxyGen2RST(object):
     def generate(self):
         for file in _glob(self.rst_dir, *self.filter):
             filename = os.path.basename(file)
-            fin = open(file,'r')
-            input_txt = fin.read()
-            fin.close()
-
+            with open(file,'r') as fin:
+                input_txt = fin.read()
             output_txt = re.sub(self.re_doxy, self._build, input_txt, 0, re.DOTALL)
             output_txt  += self._build_page_ref_notes()
 
-            fout = open(os.path.join(self.output_dir, filename), 'w+')
-            fout.write(output_txt)
-            fout.close()
-            #print("%s --- %s" %( file, os.path.join(self.output_dir, filename)))
+            with open(os.path.join(self.output_dir, filename), 'w+') as fout:
+                fout.write(output_txt)
+                #print("%s --- %s" %( file, os.path.join(self.output_dir, filename)))
 
         self._build_missed_types_and_structs()
         self.call_plantuml()
@@ -174,8 +175,8 @@ class DoxyGen2RST(object):
 
     def _build_title(self, title, flag = '=', ref = None):
         retstr = LINE_BREAKER
-        if(ref):
-            retstr += ".. _ref-" + ref + ":" + LINE_BREAKER + LINE_BREAKER
+        if ref:
+            retstr += f".. _ref-{ref}:{LINE_BREAKER}{LINE_BREAKER}"
         retstr += title + LINE_BREAKER
         retstr += "".ljust(20, flag) + LINE_BREAKER
         retstr += LINE_BREAKER
@@ -184,20 +185,19 @@ class DoxyGen2RST(object):
     def _build_ref(self, node):
         text = node.text.strip()
         retstr = ""
-        target = '`' + text + '`'
-        retstr += target + "_ "
+        target = f'`{text}`'
+        retstr += f"{target}_ "
         if target in self.page_references:
             reflink = self.page_references[target]
-            print("Link already added: %s == %s" % (reflink[0], node.attrib["refid"]))
+            print(f'Link already added: {reflink[0]} == {node.attrib["refid"]}')
             assert(reflink[0] == node.attrib["refid"])
-            pass
         else:
             self.page_references[target] = (node.attrib["refid"], node.attrib["kindref"], text)
 
         return retstr
 
     def _build_code_block(self, node):
-        retstr = "::" + LINE_BREAKER + LINE_BREAKER
+        retstr = f"::{LINE_BREAKER}{LINE_BREAKER}"
         for codeline in node.iter("codeline"):
             retstr += "  "
             for phrases in codeline.iter("highlight"):
@@ -233,26 +233,25 @@ class DoxyGen2RST(object):
 
     def _build_itemizedlist(self, node):
         retstr = LINE_BREAKER
-        if(node == None):
+        if node is None:
             return ""
         for item in node:
             if(item.tag != "listitem"):
                 continue
-            retstr += "    - " + self._build_itemlist(item)
+            retstr += f"    - {self._build_itemlist(item)}"
             retstr += LINE_BREAKER
         return retstr
 
     def _build_verbatim(self, node):
         retstr = LINE_BREAKER
-        if(node.text):
+        if node.text:
             lines = node.text.splitlines()
             print(lines[0])
-            m = re.search("{plantuml}\s(\S*)", lines[0])
-            if(m):
-                uml_name = "uml_" + m.groups()[0]
+            if m := re.search("{plantuml}\s(\S*)", lines[0]):
+                uml_name = f"uml_{m.groups()[0]}"
                 retstr += self._build_uml(uml_name, "\n".join(lines[1:]))
             else:
-                retstr += "::" + LINE_BREAKER + LINE_BREAKER
+                retstr += f"::{LINE_BREAKER}{LINE_BREAKER}"
                 retstr += node.text
 
         return retstr
@@ -277,14 +276,14 @@ class DoxyGen2RST(object):
                         retstr += self._build_para(child_para)
                     elif(child_para.text):
                         retstr += "".ljust(4, " ") + "| " + child_para.text.strip() + LINE_BREAKER
-            if(child.tag == "preformatted"):
-                retstr += "::" + LINE_BREAKER + LINE_BREAKER
-                if(child.text):
+            if (child.tag == "preformatted"):
+                retstr += f"::{LINE_BREAKER}{LINE_BREAKER}"
+                if child.text:
                     for line in child.text.splitlines():
-                        retstr += "  " + line + LINE_BREAKER
-            if(child.tag == "ref" and child.text):
+                        retstr += f"  {line}{LINE_BREAKER}"
+            if (child.tag == "ref" and child.text):
                 retstr = retstr.rstrip('\n')
-                retstr += " " + self._build_ref(child)
+                retstr += f" {self._build_ref(child)}"
                 no_new_line = True
             if(child.tag == "programlisting"):
                 retstr += self._build_code_block(child)
@@ -300,7 +299,7 @@ class DoxyGen2RST(object):
 
     def get_text(self, node):
         retstr = ""
-        if(node == None):
+        if node is None:
             return ""
         for para in node:
             if(para.tag != "para"):
@@ -314,8 +313,8 @@ class DoxyGen2RST(object):
         if(node.text):
             retstr += node.text.strip()
         for child in node:
-            if(child.tag == "ref"):
-                retstr += " " + self._build_ref(child) + " "
+            if (child.tag == "ref"):
+                retstr += f" {self._build_ref(child)} "
             if(child.tail):
                 retstr += child.tail.strip()
         return retstr
@@ -338,9 +337,7 @@ class DoxyGen2RST(object):
         max_line = 0
         for i in range(3):
             row_lines.append(row[i].splitlines())
-            if(max_line < len(row_lines[i])):
-                max_line = len(row_lines[i])
-
+            max_line = max(max_line, len(row_lines[i]))
         for i in range(max_line):
             for j in range(3):
                 retstr += "|"
@@ -349,7 +346,7 @@ class DoxyGen2RST(object):
                     retstr += "".ljust(columns[j] - len(row_lines[j][i]), " ")
                 else:
                     retstr += "".ljust(columns[j], " ")
-            retstr += "|" + LINE_BREAKER
+            retstr += f"|{LINE_BREAKER}"
         return retstr
 
     def _build_table(self, rows):
@@ -373,12 +370,8 @@ class DoxyGen2RST(object):
 
     def build_param_list(self, params, paramdescs):
         retstr = ""
-        param_descriptions = []
-        for desc in paramdescs:
-            param_descriptions.append(desc)
-
-        rows = []
-        rows.append(("Name", "Type", "Descritpion"))
+        param_descriptions = list(paramdescs)
+        rows = [("Name", "Type", "Descritpion")]
         for param in params:
             declname = param.findtext("declname")
             paramdesc = None
@@ -403,8 +396,7 @@ class DoxyGen2RST(object):
             retstr += LINE_BREAKER
             retstr += self.get_text(detail_node)
 
-        rows = []
-        rows.append(("Name", "Initializer", "Descritpion"))
+        rows = [("Name", "Initializer", "Descritpion")]
         for enumvalue in member.iter("enumvalue"):
             name = enumvalue.findtext("name")
             initializer = enumvalue.findtext("initializer")
@@ -426,8 +418,7 @@ class DoxyGen2RST(object):
         detail_node = self.get_desc_node(node)
         if(detail_node is not None):
             retstr += self.get_text(detail_node) + LINE_BREAKER
-        rows = []
-        rows.append(("Name", "Type", "Descritpion"))
+        rows = [("Name", "Type", "Descritpion")]
         for member in node.iter("memberdef"):
             if(member.attrib["kind"] == "variable"):
                 name = member.findtext("name")
@@ -444,23 +435,19 @@ class DoxyGen2RST(object):
         return retstr
 
     def _build_class(self, node):
-        retstr = ""
-
-        for member in node.iter("memberdef"):
-            if(member.attrib["kind"] == "function"):
-                retstr += self.build_function(member)
-        return retstr
+        return "".join(
+            self.build_function(member)
+            for member in node.iter("memberdef")
+            if (member.attrib["kind"] == "function")
+        )
 
     def get_desc_node(self, member):
         detail_node = member.find("detaileddescription")
         brief_node = member.find("briefdescription")
-        detail_txt = ""
-        if(detail_node == None and brief_node == None):
+        if detail_node is None and brief_node is None:
             return None
 
-        if(detail_node is not None):
-            detail_txt = detail_node.findtext("para")
-
+        detail_txt = detail_node.findtext("para") if (detail_node is not None) else ""
         if(not detail_txt and brief_node != None):
             detail_txt = brief_node.findtext("para")
             detail_node = brief_node
@@ -489,22 +476,20 @@ class DoxyGen2RST(object):
         return retstr
 
     def _build_missed_types_and_structs(self):
-        fout = open(os.path.join(self.output_dir, self.missing_filename), 'w+')
-        fout.write(".. contents:: " + LINE_BREAKER)
-        fout.write("    :local:"  + LINE_BREAKER)
-        fout.write("    :depth: 2" + LINE_BREAKER + LINE_BREAKER)
+        with open(os.path.join(self.output_dir, self.missing_filename), 'w+') as fout:
+            fout.write(f".. contents:: {LINE_BREAKER}")
+            fout.write(f"    :local:{LINE_BREAKER}")
+            fout.write(f"    :depth: 2{LINE_BREAKER}{LINE_BREAKER}")
 
-        footnote = ""
-        while (len(self.missed_types_structs) > 0):
-            for key, value in self.missed_types_structs.iteritems():
-                fout.write(self.covert_item(value[0], key, value[1]))
-                #print(value)
-            self.missed_types_structs = {}
-            footnote += self._build_page_ref_notes()
+            footnote = ""
+            while (len(self.missed_types_structs) > 0):
+                for key, value in self.missed_types_structs.iteritems():
+                    fout.write(self.covert_item(value[0], key, value[1]))
+                    #print(value)
+                self.missed_types_structs = {}
+                footnote += self._build_page_ref_notes()
 
-        fout.write(footnote)
-
-        fout.close()
+            fout.write(footnote)
 
     def _build_page_ref_notes(self):
         retstr = LINE_BREAKER
@@ -517,7 +502,7 @@ class DoxyGen2RST(object):
 
             rstname = None
             anchor = value[2].lower()
-            if not page in self.references:
+            if page not in self.references:
                 self.missed_types_structs[value[0]] = (page, tag)
                 rstname = os.path.splitext(self.missing_filename)[0]
             else:
@@ -525,7 +510,7 @@ class DoxyGen2RST(object):
                 anchor = self.references[page][4]
             #if(tag and not self.is_github):
             #    anchor = self.anchor_prefix + "ref-" + tag
-            retstr += ".. _" + key + ": " + rstname + self.page_ext + "#" + anchor
+            retstr += f".. _{key}: {rstname}{self.page_ext}#{anchor}"
             retstr += LINE_BREAKER + LINE_BREAKER
         self.page_references = {}
         return retstr
@@ -540,14 +525,14 @@ class DoxyGen2RST(object):
         return retstr
 
     def covert_item(self, compound, id, tag):
-        xml_path = os.path.join(self.doxy_output_dir, "%s.xml" % compound)
-        print("covert_item: id=%s, name=%s" % (id, xml_path))
+        xml_path = os.path.join(self.doxy_output_dir, f"{compound}.xml")
+        print(f"covert_item: id={id}, name={xml_path}")
         obj_root = etree.parse(xml_path).getroot()
         retstr = ""
         compound = obj_root.find("compounddef")
-        compound_kind = compound.attrib["kind"]
-        if(not tag):
+        if (not tag):
             retstr += self._build_title(compound.findtext("compoundname"))
+            compound_kind = compound.attrib["kind"]
             if(compound_kind == "class"):
                 retstr += self._build_class(compound)
             elif(compound_kind == "struct"):
@@ -563,11 +548,14 @@ class DoxyGen2RST(object):
         return retstr
 
     def _build_file(self, compound, type, ref_id, name):
-        retstr = ""
-        for member in compound.iter("memberdef"):
-            if(member.attrib["kind"] == "function" and member.attrib["id"] == ref_id):
-                retstr += self.build_function(member)
-        return retstr
+        return "".join(
+            self.build_function(member)
+            for member in compound.iter("memberdef")
+            if (
+                member.attrib["kind"] == "function"
+                and member.attrib["id"] == ref_id
+            )
+        )
 
     def convert_doxy(self, type, name):
         #print(name)
@@ -576,23 +564,21 @@ class DoxyGen2RST(object):
         if(type == "function"):
             file, tag = get_page(ref_id)
             dst_kind = "file"
-        xml_path = os.path.join(self.doxy_output_dir, "%s.xml" % file)
-        print("convert_doxy: type=%s, name=%s" % (type, xml_path))
+        xml_path = os.path.join(self.doxy_output_dir, f"{file}.xml")
+        print(f"convert_doxy: type={type}, name={xml_path}")
         obj_root = etree.parse(xml_path).getroot()
         compound = obj_root.find("compounddef")
         compound_kind = compound.attrib["kind"]
         assert(dst_kind == compound_kind)
         retstr = ""
-        if(compound_kind == "class"):
+        if compound_kind == "class":
             retstr += self._build_class(compound)
-        elif(compound_kind == "struct"):
-            retstr += self._build_struct(compound)
-        elif(compound_kind == "page"):
-            retstr += self._build_page(compound)
-        elif(compound_kind == "group"):
-            retstr += self._build_page(compound)
-        elif(compound_kind == "file"):
+        elif compound_kind == "file":
             retstr += self._build_file(compound, type, ref_id, name)
+        elif compound_kind in ["page", "group"]:
+            retstr += self._build_page(compound)
+        elif compound_kind == "struct":
+            retstr += self._build_struct(compound)
         return retstr
 
 
@@ -607,9 +593,7 @@ if __name__ == '__main__':
     parser.add_argument("-u", "--uml", action="store_true", help="Enable UML, you need to download plantuml.jar from Plantuml and put it to here. http://plantuml.sourceforge.net/")
 
     args = parser.parse_args()
-    ext = ""
-    if(len(args.ext) > 0):
-        ext = ("." + args.ext)
+    ext = f".{args.ext}" if (len(args.ext) > 0) else ""
     agent = DoxyGen2RST(args.input,
                         args.output,
                         args.struct,
