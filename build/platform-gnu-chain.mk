@@ -28,13 +28,6 @@ CFLAGS += -march=armv8-a
 ASMFLAGS += -march=armv8-a
 endif
 
-ifeq ($(CXX), clang++)
+ifneq ($(filter %clang++,$(CXX)),)
 CXXFLAGS += -Wc++11-compat-reserved-user-defined-literal
-endif
-
-ifeq ($(patsubst %g++,,$(CXX)),)
-GCCVER_GTEQ8 = $(shell echo $$(($$($(CXX) -dumpversion | awk -F "." '{print $$1}') >= 8)))
-ifeq ($(GCCVER_GTEQ8), 1)
-CXXFLAGS += -Wno-class-memaccess
-endif
 endif
